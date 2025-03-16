@@ -1,4 +1,5 @@
 import * as Arrow from "apache-arrow"
+import { tableFromIPC } from "apache-arrow"
 
 export interface EEGData {
     eeg_id: string
@@ -34,7 +35,10 @@ export interface SpectrogramData {
 export async function parseEEGParquet(buffer: ArrayBuffer): Promise<EEGData[]> {
     try {
         // Use Apache Arrow to parse the Parquet file
-        const table = await Arrow.Table.from(new Uint8Array(buffer))
+        const table = await tableFromIPC(new Uint8Array(buffer))
+
+
+
 
         // Convert Arrow Table to JavaScript objects
         const records: EEGData[] = []
@@ -43,7 +47,7 @@ export async function parseEEGParquet(buffer: ArrayBuffer): Promise<EEGData[]> {
             const record: any = {}
 
             // Extract each field from the table
-            table.schema.fields.forEach((field) => {
+            table.schema.fields.forEach((field: Arrow.Field) => {
                 const column = table.getChildAt(table.schema.fields.indexOf(field))
                 if (column) {
                     record[field.name] = column.get(i)?.toString() || ""
