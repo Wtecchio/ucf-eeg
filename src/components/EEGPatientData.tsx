@@ -5,6 +5,7 @@ import type React from "react"
 import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+// import Papa from "papaparse"
 import {
     Dialog,
     DialogContent,
@@ -87,10 +88,12 @@ export default function EEGPatientData() {
     const [recordsPerPage, setRecordsPerPage] = useState<number>(10)
     const [activeTab, setActiveTab] = useState<string>("records")
     const [patientFilter, setPatientFilter] = useState<string>("all")
-    const [fileUploaded, setFileUploaded] = useState<boolean>(false)
+    const [ setFileUploaded] = useState<boolean>(false)
     const [loadingSpectrogram, setLoadingSpectrogram] = useState<boolean>(false)
     const [uploadModalOpen, setUploadModalOpen] = useState<boolean>(false)
     const [dataSource, setDataSource] = useState<"csv" | "parquet">("csv")
+
+
 
     // Function to handle CSV file upload
     const handleCSVFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -215,7 +218,59 @@ export default function EEGPatientData() {
 
                 // First try to load Parquet files from sample_data directory
                 try {
-                    const patientIds = ["1", "2", "3"] // Example patient IDs to try
+                    // async function loadPatientSpectrogramData() {
+                    //     try {
+                    //         // 1. Load and parse CSV
+                    //         const response = await fetch('/sample_data/sample_train.csv');
+                    //         const csvText = await response.text();
+                    //
+                    //         const results = Papa.parse(csvText, {
+                    //             header: true,
+                    //             dynamicTyping: true,
+                    //             skipEmptyLines: true
+                    //         });
+                    //
+                    //         // 2. Create mapping between patients and spectrograms
+                    //         const patientData = results.data
+                    //             .filter(row => row.spectrogram_id && row.patient_id)
+                    //             .map(row => ({
+                    //                 patientId: row.patient_id.toString(),
+                    //                 spectrogramId: row.spectrogram_id.toString(),
+                    //                 diagnosis: row.expert_consensus
+                    //             }));
+                    //
+                    //         // 3. Fetch all spectrogram data (or just the first few for testing)
+                    //         const spectrogramsToLoad = patientData.slice(0, 5); // Load first 5 for demo, remove slice for all
+                    //
+                    //         const loadedData = await Promise.all(
+                    //             spectrogramsToLoad.map(async (patient) => {
+                    //                 try {
+                    //                     // Load the parquet file using the spectrogram ID
+                    //                     const spectrogramData = await loadSpectrogramById(patient.spectrogramId);
+                    //
+                    //                     // Combine patient metadata with spectrogram data
+                    //                     return {
+                    //                         ...patient,
+                    //                         eegData: spectrogramData
+                    //                     };
+                    //                 } catch (error) {
+                    //                     console.error(`Failed to load spectrogram ${patient.spectrogramId}:`, error);
+                    //                     return null;
+                    //                 }
+                    //             })
+                    //         );
+                    //
+                    //         // Filter out any failed loads
+                    //         return loadedData.filter(data => data !== null);
+                    //
+                    //     } catch (error) {
+                    //         console.error('Error loading patient data:', error);
+                    //         return [];
+                    //     }
+                    // }
+
+// Usage
+//                     const patientEEGData = await loadPatientSpectrogramData();
                     let parquetLoaded = false
 
                     for (const id of patientIds) {
@@ -284,27 +339,113 @@ export default function EEGPatientData() {
         loadData()
     }, [])
 
+    async function loadPatientSpectrogramData() {
+        try {
+            // 1. Load and parse CSV from sample_data directory
+            const response = await fetch('/sample_data/sample_train.csv');
+            const csvText = await response.text();
+
+            // const results = Papa.parse(csvText, {
+            //     header: true,
+            //     dynamicTyping: true,
+            //     skipEmptyLines: true
+            // });
+
+            // 2. Map spectrogram IDs to patient data
+            // const patientData = results.data
+            //     .filter(row => row.spectrogram_id && row.patient_id)
+            //     .map(row => ({
+            //         patientId: row.patient_id.toString(),
+            //         spectrogramId: row.spectrogram_id.toString(),
+            //         diagnosis: row.expert_consensus
+            //     }));
+
+            // 3. Load a few spectrograms for testing
+            // const spectrogramsToLoad = patientData;
+
+            // 4. Load each spectrogram parquet file by ID
+            // const loadedData = await Promise.all(
+            //     spectrogramsToLoad.map(async (patient) => {
+            //         try {
+            //             const spectrogramData = await loadSpectrogramById(patient.spectrogramId);
+            //
+            //             return {
+            //                 ...patient,
+            //                 eegData: spectrogramData
+            //             };
+            //         } catch (error) {
+            //             console.error(`Failed to load spectrogram ${patient.spectrogramId}:`, error);
+            //             return null;
+            //         }
+            //     })
+            // );
+
+            return loadedData.filter(data => data !== null);
+        } catch (error) {
+            console.error('Error loading patient data:', error);
+            return [];
+        }
+    }
+
+
     // Load multi-channel data when a patient is selected (if using Parquet)
     useEffect(() => {
-        if (dataSource === "parquet" && selectedPatient && !multiChannelData[selectedPatient]) {
-            const loadPatientData = async () => {
-                setLoadingSpectrogram(true)
-                try {
-                    const parsedData = await loadSpectrogramById(selectedPatient)
-                    setMultiChannelData((prev) => ({
-                        ...prev,
-                        [selectedPatient]: parsedData,
-                    }))
-                    setLoadingSpectrogram(false)
-                } catch (err) {
-                    console.error(`Error loading data for patient ${selectedPatient}:`, err)
-                    setLoadingSpectrogram(false)
-                }
-            }
+        const loadData = async () => {
+            try {
+                setLoading(true);
 
-            loadPatientData()
-        }
-    }, [selectedPatient, dataSource, multiChannelData])
+                // Try to load data with the new method
+                try {
+                    const patientEEGData = await loadPatientSpectrogramData();
+
+                    if (patientEEGData.length > 0) {
+                        // Create EEG data records from the loaded data
+                        const records = patientEEGData.map(data => ({
+                            eeg_id: data.eegData.metadata.recordId || "EEG1000",
+                            eeg_sub_id: "1",
+                            eeg_label_offset_seconds: "0",
+                            spectrogram_id: data.spectrogramId,
+                            spectrogram_sub_id: "1",
+                            spectrogram_label_offset_seconds: "0",
+                            label_id: "L500",
+                            patient_id: data.patientId,
+                            expert_consensus: data.diagnosis || "Unknown",
+                            seizure_vote: "0",
+                            lpd_vote: "0",
+                            gpd_vote: "0",
+                            lrda_vote: "0",
+                            grda_vote: "0",
+                            other_vote: "0",
+                        }));
+
+                        // Store multi-channel data
+                        const channelData = {};
+                        patientEEGData.forEach(data => {
+                            channelData[data.patientId] = data.eegData;
+                        });
+
+                        setMultiChannelData(channelData);
+                        processEEGData(records);
+                        setDataSource("parquet");
+                        return;
+                    }
+                } catch (err) {
+                    console.warn("Could not load spectrograms from sample data:", err);
+                }
+
+                // Fallback to loading CSV
+                const records = await fetchCSVFromURL(CSV_URL);
+                processEEGData(records);
+                setDataSource("csv");
+            } catch (error) {
+                console.error("Error loading data:", error);
+                setError("Failed to load data. Please try uploading a file manually.");
+                setLoading(false);
+            }
+        };
+
+        loadData();
+    }, []);
 
     // Filter patients based on search query
     const filteredPatients = useMemo(() => {
