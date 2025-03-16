@@ -47,18 +47,32 @@ import {
     FileDown,
     Search,
     Settings,
+    Upload,
     Users,
     AudioWaveformIcon as Waveform,
+    FileType,
+    RefreshCw,
 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { type EEGData, type SpectrogramData, fetchCSVFromURL, generateSpectrogramData } from "./csv-parser"
-import SpectrogramVisualization from "./spectrogram-visualization"
+import {
+    type EEGData,
+    type SpectrogramData,
+    fetchCSVFromURL,
+    parseCSV,
+    generateSpectrogramData,
+    type ParsedEEGData,
+    loadSpectrogramById,
+    parseEEGParquet,
+} from "./parquet-parser"
+import MultiChannelSpectrogram from "./spectrogram-visualization"
 
-const CSV_URL = "/sample_data/sample_train.csv"
-
+// CSV data URL
+const CSV_URL =
+    "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/sample_train-6Jwx4ERYYdPU0he1UXzletlTYfPObG.csv"
 
 export default function EEGPatientData() {
     const [eegData, setEEGData] = useState<EEGData[]>([])
+    const [multiChannelData, setMultiChannelData] = useState<Record<string, ParsedEEGData>>({})
     const [spectrogramData, setSpectrogramData] = useState<Record<string, SpectrogramData>>({})
     const [loading, setLoading] = useState<boolean>(true)
     const [error, setError] = useState<string | null>(null)
@@ -75,6 +89,8 @@ export default function EEGPatientData() {
     const [patientFilter, setPatientFilter] = useState<string>("all")
     const [fileUploaded, setFileUploaded] = useState<boolean>(false)
     const [loadingSpectrogram, setLoadingSpectrogram] = useState<boolean>(false)
+    const [uploadModalOpen, setUploadModalOpen] = useState<boolean>(false)
+    const [dataSource, setDataSource] = useState<"csv" | "parquet">("csv")
 
     // Function to handle CSV file upload
     const handleCSVFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -93,6 +109,8 @@ export default function EEGPatientData() {
 
             processEEGData(records)
             setFileUploaded(true)
+            setUploadModalOpen(false)
+            setDataSource("csv")
         } catch (err) {
             console.error("Error parsing CSV file:", err)
             setError("Failed to parse CSV file. Please ensure it's a valid CSV format.")
@@ -100,34 +118,59 @@ export default function EEGPatientData() {
         }
     }
 
-    // Parse CSV text
-    const parseCSV = async (csvText: string): Promise<EEGData[]> => {
-        // Split the CSV text into lines
-        const lines = csvText.trim().split("\n")
+    // Function to handle Parquet file upload
+    const handleParquetFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0]
+        if (!file) return
 
-        // Extract headers from the first line
-        const headers = lines[0].split(",").map((header) => header.trim())
+        setLoading(true)
+        setError(null)
+        setLoadingSpectrogram(true)
 
-        // Parse each line into an object
-        const records: EEGData[] = []
+        try {
+            // Read the file as ArrayBuffer
+            const buffer = await file.arrayBuffer()
 
-        for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(",").map((value) => value.trim())
+            // Parse the Parquet file using the custom parser
+            const parsedData = await parseEEGParquet(buffer)
 
-            // Skip lines with incorrect number of values
-            if (values.length !== headers.length) continue
-
-            const record: any = {}
-
-            // Map each value to its corresponding header
-            headers.forEach((header, index) => {
-                record[header] = values[index]
+            // Store the multi-channel data
+            const patientId = parsedData.metadata.patientId || "unknown"
+            setMultiChannelData({
+                [patientId]: parsedData,
             })
 
-            records.push(record as EEGData)
-        }
+            // Create mock EEG data for display in the table
+            const mockEEGData: EEGData[] = [
+                {
+                    eeg_id: parsedData.metadata.recordId || "EEG1000",
+                    eeg_sub_id: "SUB100",
+                    eeg_label_offset_seconds: "0",
+                    spectrogram_id: parsedData.metadata.recordId || "SPEC2000",
+                    spectrogram_sub_id: "SSUB200",
+                    spectrogram_label_offset_seconds: "0",
+                    label_id: "L500",
+                    patient_id: patientId,
+                    expert_consensus: "Unknown",
+                    seizure_vote: "0",
+                    lpd_vote: "0",
+                    gpd_vote: "0",
+                    lrda_vote: "0",
+                    grda_vote: "0",
+                    other_vote: "0",
+                },
+            ]
 
-        return records
+            processEEGData(mockEEGData)
+            setFileUploaded(true)
+            setUploadModalOpen(false)
+            setDataSource("parquet")
+        } catch (err) {
+            console.error("Error parsing Parquet file:", err)
+            setError("Failed to parse Parquet file. Please ensure it's a valid Parquet format.")
+            setLoading(false)
+            setLoadingSpectrogram(false)
+        }
     }
 
     // Process EEG data after loading
@@ -148,37 +191,120 @@ export default function EEGPatientData() {
 
         setGroupedByPatient(grouped)
 
-        // Generate mock spectrogram data for each record
-        const mockSpectrogramData: Record<string, SpectrogramData> = {}
+        // Generate mock spectrogram data for each record if using CSV
+        if (dataSource === "csv") {
+            const mockSpectrogramData: Record<string, SpectrogramData> = {}
 
-        records.forEach((record) => {
-            const key = `${record.patient_id}_${record.eeg_id}`
-            mockSpectrogramData[key] = generateSpectrogramData(record.patient_id, record.eeg_id)
-        })
+            records.forEach((record) => {
+                const key = `${record.patient_id}_${record.eeg_id}`
+                mockSpectrogramData[key] = generateSpectrogramData(record.patient_id, record.eeg_id)
+            })
 
-        setSpectrogramData(mockSpectrogramData)
+            setSpectrogramData(mockSpectrogramData)
+        }
+
         setLoading(false)
+        setLoadingSpectrogram(false)
     }
 
-    // Load data from the CSV URL
+    // Load data from the CSV URL or try to load Parquet files
     useEffect(() => {
-        const loadCSVData = async () => {
+        const loadData = async () => {
             try {
                 setLoading(true)
 
-                // Fetch and parse the CSV data
-                const records = await fetchCSVFromURL(CSV_URL)
+                // First try to load Parquet files from sample_data directory
+                try {
+                    const patientIds = ["1", "2", "3"] // Example patient IDs to try
+                    let parquetLoaded = false
 
+                    for (const id of patientIds) {
+                        try {
+                            const parsedData = await loadSpectrogramById(id)
+
+                            // If we successfully loaded a Parquet file
+                            setMultiChannelData((prev) => ({
+                                ...prev,
+                                [id]: parsedData,
+                            }))
+
+                            // Create mock EEG data for display
+                            const mockEEGData: EEGData[] = [
+                                {
+                                    eeg_id: parsedData.metadata.recordId || "EEG1000",
+                                    eeg_sub_id: "SUB100",
+                                    eeg_label_offset_seconds: "0",
+                                    spectrogram_id: parsedData.metadata.recordId || "SPEC2000",
+                                    spectrogram_sub_id: "SSUB200",
+                                    spectrogram_label_offset_seconds: "0",
+                                    label_id: "L500",
+                                    patient_id: id,
+                                    expert_consensus: "Unknown",
+                                    seizure_vote: "0",
+                                    lpd_vote: "0",
+                                    gpd_vote: "0",
+                                    lrda_vote: "0",
+                                    grda_vote: "0",
+                                    other_vote: "0",
+                                },
+                            ]
+
+                            if (!parquetLoaded) {
+                                setEEGData([mockEEGData[0]])
+                                parquetLoaded = true
+                            } else {
+                                setEEGData((prev) => [...prev, mockEEGData[0]])
+                            }
+                        } catch (err) {
+                            console.warn(`Could not load Parquet data for patient ${id}`)
+                        }
+                    }
+
+                    if (parquetLoaded) {
+                        // If we loaded any Parquet files, process the data
+                        processEEGData(eegData)
+                        setDataSource("parquet")
+                        return
+                    }
+                } catch (err) {
+                    console.warn("Could not load Parquet files, falling back to CSV")
+                }
+
+                // If no Parquet files were found, load CSV data
+                const records = await fetchCSVFromURL(CSV_URL)
                 processEEGData(records)
+                setDataSource("csv")
             } catch (error) {
-                console.error("Error loading CSV data:", error)
-                setError("Failed to load data from the CSV URL")
+                console.error("Error loading data:", error)
+                setError("Failed to load data. Please try uploading a file manually.")
                 setLoading(false)
             }
         }
 
-        loadCSVData()
+        loadData()
     }, [])
+
+    // Load multi-channel data when a patient is selected (if using Parquet)
+    useEffect(() => {
+        if (dataSource === "parquet" && selectedPatient && !multiChannelData[selectedPatient]) {
+            const loadPatientData = async () => {
+                setLoadingSpectrogram(true)
+                try {
+                    const parsedData = await loadSpectrogramById(selectedPatient)
+                    setMultiChannelData((prev) => ({
+                        ...prev,
+                        [selectedPatient]: parsedData,
+                    }))
+                    setLoadingSpectrogram(false)
+                } catch (err) {
+                    console.error(`Error loading data for patient ${selectedPatient}:`, err)
+                    setLoadingSpectrogram(false)
+                }
+            }
+
+            loadPatientData()
+        }
+    }, [selectedPatient, dataSource, multiChannelData])
 
     // Filter patients based on search query
     const filteredPatients = useMemo(() => {
@@ -335,7 +461,12 @@ export default function EEGPatientData() {
         }
     }
 
-    // Get spectrogram data for a specific record
+    // Get multi-channel data for a specific patient
+    const getMultiChannelData = (patientId: string): ParsedEEGData | null => {
+        return multiChannelData[patientId] || null
+    }
+
+    // Get spectrogram data for a specific record (for CSV data)
     const getSpectrogramData = (patientId: string, eegId: string): SpectrogramData | null => {
         const key = `${patientId}_${eegId}`
         return spectrogramData[key] || null
@@ -387,9 +518,16 @@ export default function EEGPatientData() {
                         <CardTitle className="flex items-center gap-2">
                             <Brain className="h-6 w-6" /> EEG Patient Data
                         </CardTitle>
-                        <CardDescription>View and analyze electroencephalogram data by patient</CardDescription>
+                        <CardDescription>
+                            View and analyze electroencephalogram data by patient
+                            {dataSource === "parquet" && " (Multi-Channel Parquet)"}
+                            {dataSource === "csv" && " (CSV)"}
+                        </CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
+                        <Button variant="outline" onClick={() => setUploadModalOpen(true)}>
+                            <Upload className="h-4 w-4 mr-2" /> Upload Data
+                        </Button>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="outline" size="icon">
@@ -402,19 +540,6 @@ export default function EEGPatientData() {
                                 <DropdownMenuItem onClick={() => setRecordsPerPage(5)}>Show 5 records per page</DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => setRecordsPerPage(10)}>Show 10 records per page</DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => setRecordsPerPage(20)}>Show 20 records per page</DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem>
-                                    <label htmlFor="new-csv-file-upload" className="cursor-pointer w-full">
-                                        Upload New CSV File
-                                    </label>
-                                    <input
-                                        id="new-csv-file-upload"
-                                        type="file"
-                                        accept=".csv"
-                                        className="hidden"
-                                        onChange={handleCSVFileUpload}
-                                    />
-                                </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
@@ -746,31 +871,48 @@ export default function EEGPatientData() {
                                                         <Waveform className="h-16 w-16 text-muted-foreground/50" />
                                                         <p className="text-muted-foreground text-center">No records found for this patient</p>
                                                     </div>
+                                                ) : loadingSpectrogram ? (
+                                                    <div className="flex flex-col items-center justify-center h-[300px] gap-4">
+                                                        <RefreshCw className="h-16 w-16 animate-spin text-primary" />
+                                                        <p className="text-muted-foreground text-center">Loading spectrogram data...</p>
+                                                    </div>
                                                 ) : (
                                                     <div className="space-y-6">
-                                                        {paginatedRecords.map((record, idx) => {
-                                                            const spectrogramData = getSpectrogramData(record.patient_id, record.eeg_id)
-                                                            return (
-                                                                <div key={idx} className="border rounded-lg p-4">
-                                                                    <div className="flex justify-between items-center mb-4">
-                                                                        <h3 className="text-lg font-medium">Record: {record.eeg_id}</h3>
-                                                                        <Badge variant={getConsensusColor(record.expert_consensus)}>
-                                                                            {record.expert_consensus}
-                                                                        </Badge>
-                                                                    </div>
+                                                        {dataSource === "parquet" ? (
+                                                            // Multi-channel spectrogram for Parquet data
+                                                            <div className="border rounded-lg p-4">
+                                                                <MultiChannelSpectrogram
+                                                                    data={getMultiChannelData(selectedPatient)}
+                                                                    title={`Multi-Channel Spectrogram for Patient ${selectedPatient}`}
+                                                                    patientId={selectedPatient}
+                                                                />
+                                                            </div>
+                                                        ) : (
+                                                            // Regular spectrograms for CSV data
+                                                            paginatedRecords.map((record, idx) => {
+                                                                const spectrogramData = getSpectrogramData(record.patient_id, record.eeg_id)
+                                                                return (
+                                                                    <div key={idx} className="border rounded-lg p-4">
+                                                                        <div className="flex justify-between items-center mb-4">
+                                                                            <h3 className="text-lg font-medium">Record: {record.eeg_id}</h3>
+                                                                            <Badge variant={getConsensusColor(record.expert_consensus)}>
+                                                                                {record.expert_consensus}
+                                                                            </Badge>
+                                                                        </div>
 
-                                                                    <SpectrogramVisualization
-                                                                        data={spectrogramData}
-                                                                        title={`Spectrogram for EEG ${record.eeg_id}`}
-                                                                        patientId={record.patient_id}
-                                                                        recordId={record.eeg_id}
-                                                                    />
-                                                                </div>
-                                                            )
-                                                        })}
+                                                                        <MultiChannelSpectrogram
+                                                                            data={getMultiChannelData(record.patient_id)}
+                                                                            title={`Spectrogram for EEG ${record.eeg_id}`}
+                                                                            patientId={record.patient_id}
+                                                                            recordId={record.eeg_id}
+                                                                        />
+                                                                    </div>
+                                                                )
+                                                            })
+                                                        )}
 
                                                         {/* Pagination for spectrograms */}
-                                                        {paginatedRecords.length > 0 && (
+                                                        {dataSource === "csv" && paginatedRecords.length > 0 && (
                                                             <div className="mt-4 flex items-center justify-between">
                                                                 <div className="text-sm text-muted-foreground">
                                                                     Showing {(currentPage - 1) * recordsPerPage + 1} to{" "}
@@ -922,13 +1064,21 @@ export default function EEGPatientData() {
                                                                 </CardTitle>
                                                             </CardHeader>
                                                             <CardContent>
-                                                                {patientRecords.length > 0 && (
-                                                                    <SpectrogramVisualization
-                                                                        data={getSpectrogramData(selectedPatient, patientRecords[0].eeg_id)}
-                                                                        title="Representative Spectrogram"
+                                                                {dataSource === "parquet" ? (
+                                                                    <MultiChannelSpectrogram
+                                                                        data={getMultiChannelData(selectedPatient)}
+                                                                        title="Multi-Channel EEG Analysis"
                                                                         patientId={selectedPatient}
-                                                                        recordId={patientRecords[0].eeg_id}
                                                                     />
+                                                                ) : (
+                                                                    patientRecords.length > 0 && (
+                                                                        <MultiChannelSpectrogram
+                                                                            data={getMultiChannelData(selectedPatient)}
+                                                                            title="Representative Spectrogram"
+                                                                            patientId={selectedPatient}
+                                                                            recordId={patientRecords[0].eeg_id}
+                                                                        />
+                                                                    )
                                                                 )}
                                                             </CardContent>
                                                         </Card>
@@ -944,7 +1094,7 @@ export default function EEGPatientData() {
                 </CardContent>
             </Card>
 
-            {/* Modal Dialog */}
+            {/* Modal Dialog for Record Details */}
             <Dialog open={modalOpen} onOpenChange={setModalOpen}>
                 <DialogContent className="sm:max-w-[800px]">
                     <DialogHeader>
@@ -1071,8 +1221,8 @@ export default function EEGPatientData() {
                                 </TabsContent>
 
                                 <TabsContent value="spectrogram" className="pt-4">
-                                    <SpectrogramVisualization
-                                        data={getSpectrogramData(selectedRecord.patient_id, selectedRecord.eeg_id)}
+                                    <MultiChannelSpectrogram
+                                        data={getMultiChannelData(selectedRecord.patient_id)}
                                         title={`Spectrogram for EEG ${selectedRecord.eeg_id}`}
                                         patientId={selectedRecord.patient_id}
                                         recordId={selectedRecord.eeg_id}
@@ -1084,6 +1234,55 @@ export default function EEGPatientData() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setModalOpen(false)}>
                             Close
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Upload Data Modal */}
+            <Dialog open={uploadModalOpen} onOpenChange={setUploadModalOpen}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>Upload EEG Data</DialogTitle>
+                        <DialogDescription>Upload CSV or Parquet files containing EEG data</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-6 py-4">
+                        <div className="space-y-4">
+                            <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg">
+                                <FileType className="h-10 w-10 text-muted-foreground mb-4" />
+                                <p className="text-sm text-muted-foreground mb-4 text-center">Upload EEG data file</p>
+                                <div className="flex flex-wrap gap-2">
+                                    <label htmlFor="csv-file-upload">
+                                        <input
+                                            id="csv-file-upload"
+                                            type="file"
+                                            accept=".csv"
+                                            className="hidden"
+                                            onChange={handleCSVFileUpload}
+                                        />
+                                        <Button variant="outline" className="cursor-pointer">
+                                            Select CSV File
+                                        </Button>
+                                    </label>
+                                    <label htmlFor="parquet-file-upload">
+                                        <input
+                                            id="parquet-file-upload"
+                                            type="file"
+                                            accept=".parquet"
+                                            className="hidden"
+                                            onChange={handleParquetFileUpload}
+                                        />
+                                        <Button variant="outline" className="cursor-pointer">
+                                            Select Parquet File
+                                        </Button>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setUploadModalOpen(false)}>
+                            Cancel
                         </Button>
                     </DialogFooter>
                 </DialogContent>

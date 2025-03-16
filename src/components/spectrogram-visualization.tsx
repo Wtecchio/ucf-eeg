@@ -6,31 +6,27 @@ import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { ZoomIn, ZoomOut, RefreshCw, Download } from "lucide-react"
+import { type ParsedEEGData, convertToSpectrogramData } from "./parquet-parser"
 
-interface SpectrogramData {
-    times: number[]
-    frequencies: number[]
-    powerValues: number[][]
-}
-
-interface SpectrogramVisualizationProps {
-    data: SpectrogramData | null
+interface MultiChannelSpectrogramProps {
+    data: ParsedEEGData | null
     title?: string
     patientId?: string
     recordId?: string
 }
 
-export default function SpectrogramVisualization({
-                                                     data,
-                                                     title = "EEG Spectrogram",
-                                                     patientId,
-                                                     recordId,
-                                                 }: SpectrogramVisualizationProps) {
+export default function MultiChannelSpectrogram({
+                                                    data,
+                                                    title = "EEG Spectrogram",
+                                                    patientId,
+                                                    recordId,
+                                                }: MultiChannelSpectrogramProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const [colorMap, setColorMap] = useState<string>("viridis")
     const [timeRange, setTimeRange] = useState<[number, number]>([0, 100])
     const [zoomLevel, setZoomLevel] = useState<number>(1)
     const [isLoading, setIsLoading] = useState<boolean>(false)
+    const [selectedChannel, setSelectedChannel] = useState<string>("LL")
 
     // Color maps for spectrogram visualization
     const colorMaps = {
@@ -97,6 +93,9 @@ export default function SpectrogramVisualization({
         // Clear the canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
+        // Convert multi-channel data to spectrogram data for the selected channel
+        const spectrogramData = convertToSpectrogramData(data, selectedChannel as keyof ParsedEEGData["channels"])
+
         // Calculate dimensions
         const width = canvas.width
         const height = canvas.height
@@ -105,7 +104,7 @@ export default function SpectrogramVisualization({
         let minPower = Number.POSITIVE_INFINITY
         let maxPower = Number.NEGATIVE_INFINITY
 
-        for (const row of data.powerValues) {
+        for (const row of spectrogramData.powerValues) {
             for (const value of row) {
                 if (value < minPower) minPower = value
                 if (value > maxPower) maxPower = value
@@ -113,18 +112,18 @@ export default function SpectrogramVisualization({
         }
 
         // Apply time range filter
-        const startTimeIndex = Math.floor(data.times.length * (timeRange[0] / 100))
-        const endTimeIndex = Math.ceil(data.times.length * (timeRange[1] / 100))
+        const startTimeIndex = Math.floor(spectrogramData.times.length * (timeRange[0] / 100))
+        const endTimeIndex = Math.ceil(spectrogramData.times.length * (timeRange[1] / 100))
 
-        const timeSlice = data.times.slice(startTimeIndex, endTimeIndex)
-        const powerSlice = data.powerValues.map((row) => row.slice(startTimeIndex, endTimeIndex))
+        const timeSlice = spectrogramData.times.slice(startTimeIndex, endTimeIndex)
+        const powerSlice = spectrogramData.powerValues.map((row) => row.slice(startTimeIndex, endTimeIndex))
 
         // Calculate pixel size
         const pixelWidth = width / timeSlice.length
-        const pixelHeight = height / data.frequencies.length
+        const pixelHeight = height / spectrogramData.frequencies.length
 
         // Draw the spectrogram
-        for (let i = 0; i < data.frequencies.length; i++) {
+        for (let i = 0; i < spectrogramData.frequencies.length; i++) {
             for (let j = 0; j < timeSlice.length; j++) {
                 const power = powerSlice[i][j]
                 const [r, g, b] = getColor(power, minPower, maxPower)
@@ -170,10 +169,10 @@ export default function SpectrogramVisualization({
         // Y-axis labels (frequency)
         ctx.textAlign = "right"
 
-        const freqStep = Math.max(1, Math.floor(data.frequencies.length / 5))
-        for (let i = 0; i < data.frequencies.length; i += freqStep) {
+        const freqStep = Math.max(1, Math.floor(spectrogramData.frequencies.length / 5))
+        for (let i = 0; i < spectrogramData.frequencies.length; i += freqStep) {
             const y = height - i * pixelHeight
-            const freq = data.frequencies[i].toFixed(0)
+            const freq = spectrogramData.frequencies[i].toFixed(0)
             ctx.fillText(`${freq}Hz`, 25, y)
         }
 
@@ -194,7 +193,7 @@ export default function SpectrogramVisualization({
         if (!canvasRef.current) return
 
         const link = document.createElement("a")
-        link.download = `spectrogram_${patientId || "patient"}_${recordId || "record"}.png`
+        link.download = `spectrogram_${patientId || "patient"}_${recordId || "record"}_${selectedChannel}.png`
         link.href = canvasRef.current.toDataURL("image/png")
         link.click()
     }
@@ -202,7 +201,7 @@ export default function SpectrogramVisualization({
     // Redraw when data or visualization parameters change
     useEffect(() => {
         drawSpectrogram()
-    }, [data, colorMap, timeRange, zoomLevel])
+    }, [data, colorMap, timeRange, zoomLevel, selectedChannel])
 
     // If no data is available
     if (!data) {
@@ -255,6 +254,19 @@ export default function SpectrogramVisualization({
                                 </SelectContent>
                             </Select>
                         </div>
+                        <div className="w-full sm:w-[200px]">
+                            <Select value={selectedChannel} onValueChange={setSelectedChannel}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Channel" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="LL">Left Lateral (LL)</SelectItem>
+                                    <SelectItem value="RL">Right Lateral (RL)</SelectItem>
+                                    <SelectItem value="LP">Left Parasagittal (LP)</SelectItem>
+                                    <SelectItem value="RP">Right Parasagittal (RP)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <div className="flex-1 px-2">
                             <p className="text-sm text-muted-foreground mb-2">Time Range</p>
                             <Slider
@@ -277,9 +289,10 @@ export default function SpectrogramVisualization({
                     </div>
 
                     <div className="text-xs text-muted-foreground">
-                        {patientId && recordId && (
+                        {patientId && (
                             <p>
-                                Patient {patientId} - Record {recordId}
+                                Patient {patientId} - Channel {selectedChannel} - Sampling Rate: {data.metadata.samplingRate.toFixed(1)}{" "}
+                                Hz - Duration: {data.metadata.duration.toFixed(1)} ms
                             </p>
                         )}
                     </div>

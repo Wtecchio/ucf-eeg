@@ -1,5 +1,27 @@
-import * as Arrow from "apache-arrow"
 import { tableFromIPC } from "apache-arrow"
+import Papa from 'papaparse';
+
+export interface ChannelData {
+    frequencies: number[]
+    powerValues: number[][] // [time][frequency]
+}
+
+export interface ParsedEEGData {
+    times: number[]
+    channels: {
+        LL: ChannelData
+        RL: ChannelData
+        LP: ChannelData
+        RP: ChannelData
+    }
+    metadata: {
+        patientId: string
+        recordId: string
+        samplingRate: number
+        duration: number
+        totalFrames: number
+    }
+}
 
 export interface EEGData {
     eeg_id: string
@@ -31,27 +53,244 @@ export interface SpectrogramData {
     }
 }
 
-// Parse Parquet file containing EEG metadata
-export async function parseEEGParquet(buffer: ArrayBuffer): Promise<EEGData[]> {
+export async function getSpectrogramIds() {
     try {
-        // Use Apache Arrow to parse the Parquet file
-        const table = await tableFromIPC(new Uint8Array(buffer))
+        // Fetch the CSV file
+        const response = await fetch('/sample_data/sample_train.csv');
+        const csvText = await response.text();
 
+        // Parse CSV
+        const results = Papa.parse(csvText, {
+            header: true,
+            dynamicTyping: true,
+            skipEmptyLines: true
+        });
 
+        // Create an array of objects with patient ID and spectrogram ID
+        const patientData = results.data
+            .filter((row: any) => row.spectrogram_id) // Filter out rows with missing spectrogram_id
+            .map((row: any) => ({
+                patientId: row.patient_id.toString(),
+                spectrogramId: row.spectrogram_id.toString(),
+                diagnosis: row.expert_consensus
+            }));
 
+        // Extract just the spectrogram IDs for file loading
+        const spectrogramIds = patientData.map((item: any) => item.spectrogramId);
 
-        // Convert Arrow Table to JavaScript objects
+        return {
+            spectrogramIds,  // Array of spectrogram IDs to load parquet files
+            patientData      // Full mapping of patient to spectrogram with diagnosis
+        };
+    } catch (error) {
+        console.error('Error parsing spectrogram IDs from CSV:', error);
+        return { spectrogramIds: [], patientData: [] };
+    }
+}
+
+export async function loadSpectrogramById(id: string, isPatientId: boolean = true): Promise<ParsedEEGData> {
+    try {
+        // Determine the file path based on whether we're using patient ID or spectrogram ID
+        const filePath = isPatientId
+            ? `/sample_data/spectrograms/${id}.parquet`
+            : `/sample_data/spectrograms/spectrogram_${id}.parquet`;
+
+        const response = await fetch(filePath);
+        const arrayBuffer = await response.arrayBuffer();
+        return parseEEGParquet(arrayBuffer);
+    } catch (error) {
+        console.error(`Error loading spectrogram for ID ${id}:`, error);
+        throw error;
+    }
+}
+
+export async function parseEEGParquet(buffer: ArrayBuffer): Promise<ParsedEEGData> {
+    const table = await tableFromIPC(new Uint8Array(buffer))
+
+    // Extract time column first to establish recording length
+    const timeColumn = table.getChild("time")
+    const times: number[] = []
+    for (let i = 0; i < table.numRows; i++) {
+        times.push(Number(timeColumn?.get(i)) || 0)
+    }
+
+    // Initialize channel data structure
+    const channels: Record<string, ChannelData> = {
+        LL: { frequencies: [], powerValues: [] },
+        RL: { frequencies: [], powerValues: [] },
+        LP: { frequencies: [], powerValues: [] },
+        RP: { frequencies: [], powerValues: [] },
+    }
+
+    // Get all column names and organize by channel
+    const columnsByChannel: Record<string, { name: string; frequency: number }[]> = {
+        LL: [],
+        RL: [],
+        LP: [],
+        RP: [],
+    }
+
+    // Parse column names and extract frequencies
+    table.schema.fields.forEach((field) => {
+        const name = field.name
+        if (name === "time") return // Skip time column
+
+        Object.keys(channels).forEach((channel) => {
+            if (name.startsWith(channel + "_")) {
+                const frequency = Number.parseFloat(name.substring(channel.length + 1))
+                if (!isNaN(frequency)) {
+                    columnsByChannel[channel].push({ name, frequency })
+                }
+            }
+        })
+    })
+
+    // Sort frequencies for each channel
+    Object.keys(columnsByChannel).forEach((channel) => {
+        columnsByChannel[channel].sort((a, b) => a.frequency - b.frequency)
+
+        // Store sorted frequencies
+        channels[channel].frequencies = columnsByChannel[channel].map((col) => col.frequency)
+
+        // Initialize power values array
+        const powerValues: number[][] = new Array(times.length)
+        for (let t = 0; t < times.length; t++) {
+            powerValues[t] = new Array(columnsByChannel[channel].length).fill(0)
+        }
+
+        // Fill power values
+        columnsByChannel[channel].forEach((col, freqIndex) => {
+            const column = table.getChild(col.name)
+            if (column) {
+                for (let t = 0; t < times.length; t++) {
+                    powerValues[t][freqIndex] = Number(column.get(t)) || 0
+                }
+            }
+        })
+
+        channels[channel].powerValues = powerValues
+    })
+
+    // Calculate sampling rate
+    const samplingRate =
+        times.length > 1
+            ? 1000 / (times[1] - times[0])
+            : Number.parseFloat(table.schema.metadata.get("sampling_rate") || "0")
+
+    // Extract metadata
+    const metadata = {
+        patientId: table.schema.metadata.get("patient_id") || "",
+        recordId: table.schema.metadata.get("record_id") || "",
+        samplingRate: samplingRate,
+        duration: times[times.length - 1] - times[0],
+        totalFrames: times.length,
+    }
+
+    return {
+        times,
+        channels: channels as ParsedEEGData["channels"],
+        metadata,
+    }
+}
+
+// Helper function to get frame data at a specific time index
+export function getFrameData(parsedData: ParsedEEGData, timeIndex: number) {
+    if (timeIndex < 0 || timeIndex >= parsedData.times.length) {
+        throw new Error("Time index out of bounds")
+    }
+
+    return {
+        time: parsedData.times[timeIndex],
+        channels: {
+            LL: parsedData.channels.LL.powerValues[timeIndex],
+            RL: parsedData.channels.RL.powerValues[timeIndex],
+            LP: parsedData.channels.LP.powerValues[timeIndex],
+            RP: parsedData.channels.RP.powerValues[timeIndex],
+        },
+    }
+}
+
+// Helper function to get average power across a time range for each frequency
+export function getAveragePowerSpectrum(parsedData: ParsedEEGData, startTimeIndex: number, endTimeIndex: number) {
+    if (startTimeIndex < 0 || endTimeIndex >= parsedData.times.length || startTimeIndex > endTimeIndex) {
+        throw new Error("Time indices out of bounds")
+    }
+
+    const result: Record<string, number[]> = {}
+
+    Object.keys(parsedData.channels).forEach((channel) => {
+        const channelData = parsedData.channels[channel as keyof typeof parsedData.channels]
+        const frequencies = channelData.frequencies
+        const averagePower = new Array(frequencies.length).fill(0)
+
+        for (let freqIdx = 0; freqIdx < frequencies.length; freqIdx++) {
+            let sum = 0
+            for (let timeIdx = startTimeIndex; timeIdx <= endTimeIndex; timeIdx++) {
+                sum += channelData.powerValues[timeIdx][freqIdx]
+            }
+            averagePower[freqIdx] = sum / (endTimeIndex - startTimeIndex + 1)
+        }
+
+        result[channel] = averagePower
+    })
+
+    return result
+}
+
+// Convert ParsedEEGData to SpectrogramData for a specific channel
+export function convertToSpectrogramData(
+    parsedData: ParsedEEGData,
+    channel: keyof ParsedEEGData["channels"],
+): SpectrogramData {
+    const channelData = parsedData.channels[channel]
+
+    // Convert from [time][frequency] to [frequency][time]
+    const powerValues: number[][] = []
+
+    for (let f = 0; f < channelData.frequencies.length; f++) {
+        const row: number[] = []
+        for (let t = 0; t < parsedData.times.length; t++) {
+            row.push(channelData.powerValues[t][f])
+        }
+        powerValues.push(row)
+    }
+
+    return {
+        times: parsedData.times,
+        frequencies: channelData.frequencies,
+        powerValues,
+        metadata: {
+            patientId: parsedData.metadata.patientId,
+            recordId: parsedData.metadata.recordId,
+            samplingRate: parsedData.metadata.samplingRate,
+            duration: parsedData.metadata.duration,
+        },
+    }
+}
+
+// Parse CSV data
+export async function parseCSV(csvText: string): Promise<EEGData[]> {
+    try {
+        // Split the CSV text into lines
+        const lines = csvText.trim().split("\n")
+
+        // Extract headers from the first line
+        const headers = lines[0].split(",").map((header) => header.trim())
+
+        // Parse each line into an object
         const records: EEGData[] = []
 
-        for (let i = 0; i < table.numRows; i++) {
+        for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(",").map((value) => value.trim())
+
+            // Skip lines with incorrect number of values
+            if (values.length !== headers.length) continue
+
             const record: any = {}
 
-            // Extract each field from the table
-            table.schema.fields.forEach((field: Arrow.Field) => {
-                const column = table.getChildAt(table.schema.fields.indexOf(field))
-                if (column) {
-                    record[field.name] = column.get(i)?.toString() || ""
-                }
+            // Map each value to its corresponding header
+            headers.forEach((header, index) => {
+                record[header] = values[index]
             })
 
             records.push(record as EEGData)
@@ -59,113 +298,30 @@ export async function parseEEGParquet(buffer: ArrayBuffer): Promise<EEGData[]> {
 
         return records
     } catch (error) {
-        console.error("Error parsing EEG Parquet file:", error)
-        throw new Error("Failed to parse EEG Parquet file")
+        console.error("Error parsing CSV:", error)
+        throw new Error("Failed to parse CSV data")
     }
 }
 
-// Parse Parquet file containing spectrogram data
-export async function parseSpectrogramParquet(buffer: ArrayBuffer): Promise<SpectrogramData> {
+// Fetch CSV data from URL
+export async function fetchCSVFromURL(url: string): Promise<EEGData[]> {
     try {
-        // Use Apache Arrow to parse the Parquet file
-        const table = await Arrow.Table.from(new Uint8Array(buffer))
+        const response = await fetch(url)
 
-        // Extract metadata from the table
-        const metadata = {
-            patientId: "",
-            recordId: "",
-            samplingRate: 0,
-            duration: 0,
+        if (!response.ok) {
+            throw new Error(`Failed to fetch CSV: ${response.status} ${response.statusText}`)
         }
 
-        // Try to extract metadata from the table
-        table.schema.metadata.forEach((value, key) => {
-            if (key === "patient_id") metadata.patientId = value
-            if (key === "record_id") metadata.recordId = value
-            if (key === "sampling_rate") metadata.samplingRate = Number.parseFloat(value)
-            if (key === "duration") metadata.duration = Number.parseFloat(value)
-        })
-
-        // Extract time values (assuming there's a 'time' column)
-        const timeColumn = table.getColumn("time")
-        const times: number[] = []
-
-        if (timeColumn) {
-            for (let i = 0; i < table.numRows; i++) {
-                times.push(Number.parseFloat(timeColumn.get(i)?.toString() || "0"))
-            }
-        } else {
-            // If no time column, create evenly spaced time points
-            for (let i = 0; i < table.numRows; i++) {
-                times.push((i / (table.numRows - 1)) * (metadata.duration || 10))
-            }
-        }
-
-        // Extract frequency values (assuming there's a 'frequency' column)
-        const freqColumn = table.getColumn("frequency")
-        const frequencies: number[] = []
-
-        if (freqColumn) {
-            for (let i = 0; i < freqColumn.length; i++) {
-                frequencies.push(Number.parseFloat(freqColumn.get(i)?.toString() || "0"))
-            }
-        } else {
-            // If no frequency column, try to infer from other columns
-            // Assuming columns other than 'time' represent frequency bands
-            const freqColumns = table.schema.fields.filter((field) => field.name !== "time").map((field) => field.name)
-
-            freqColumns.forEach((name) => {
-                if (!isNaN(Number.parseFloat(name))) {
-                    frequencies.push(Number.parseFloat(name))
-                }
-            })
-
-            // If still no frequencies, create default range
-            if (frequencies.length === 0) {
-                for (let i = 0; i < 100; i++) {
-                    frequencies.push(i)
-                }
-            }
-        }
-
-        // Sort frequencies in ascending order
-        frequencies.sort((a, b) => a - b)
-
-        // Extract power values for each frequency and time point
-        const powerValues: number[][] = []
-
-        // Initialize the power values array
-        for (let i = 0; i < frequencies.length; i++) {
-            powerValues.push(new Array(times.length).fill(0))
-        }
-
-        // Fill in the power values
-        for (let i = 0; i < frequencies.length; i++) {
-            const freq = frequencies[i].toString()
-            const column = table.getColumn(freq)
-
-            if (column) {
-                for (let j = 0; j < times.length; j++) {
-                    const value = column.get(j)
-                    powerValues[i][j] = Number.parseFloat(value?.toString() || "0")
-                }
-            }
-        }
-
-        return {
-            times,
-            frequencies,
-            powerValues,
-            metadata,
-        }
+        const csvText = await response.text()
+        return parseCSV(csvText)
     } catch (error) {
-        console.error("Error parsing Spectrogram Parquet file:", error)
-        throw new Error("Failed to parse Spectrogram Parquet file")
+        console.error("Error fetching CSV:", error)
+        throw new Error("Failed to fetch CSV data from URL")
     }
 }
 
 // Generate mock spectrogram data for testing
-export function generateMockSpectrogramData(patientId = "1", recordId = "EEG1000"): SpectrogramData {
+export function generateSpectrogramData(patientId = "1", recordId = "EEG1000"): SpectrogramData {
     // Create time points (0 to 10 seconds)
     const times: number[] = []
     for (let i = 0; i < 200; i++) {
@@ -225,4 +381,3 @@ export function generateMockSpectrogramData(patientId = "1", recordId = "EEG1000
         },
     }
 }
-
