@@ -22,7 +22,6 @@
     "importOrder": [
         "^react$",
         "^next(/.*)?$",
-        "next-themes",
         "@/*",
         "<THIRD_PARTY_MODULES>"
     ],

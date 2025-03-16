@@ -27,7 +27,7 @@ Welcome to the **Next.js 15 Starter** repository! This starter template is built
 - [**typescript-eslint**](https://github.com/typescript-eslint/typescript-eslint)
 - [**eslint-plugin-react**](https://github.com/jsx-eslint/eslint-plugin-react)
 - [**@next/eslint-plugin-next**](https://github.com/vercel/next.js)
-- [**eslint-config-prettier**](eslint-config-prettier)
+- [**eslint-config-prettier**]
 - [**eslint-plugin-tailwindcss**](https://github.com/francoismassart/eslint-plugin-tailwindcss)
 - [**eslint-plugin-import**](https://github.com/import-js/eslint-plugin-import)
 - [**eslint-plugin-promise**](https://github.com/eslint-community/eslint-plugin-promise)
@@ -71,7 +71,7 @@ To enhance development experience, install the following VS Code extensions:
 1. **Clone the Repository**:
     ```bash
     git clone https://github.com/yourusername/nextjs-15-starter-tailwind.git
-    cd nextjs-15-starter-tailwind
+    cd ucf-eeg-frontend
     ```
 
 2. **Install Dependencies**:
