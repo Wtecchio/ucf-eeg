@@ -195,7 +195,6 @@ export default function EEGPatientData() {
             setSpectrogramData(mockSpectrogramData);
         }
 
-
         setLoading(false);
         setLoadingSpectrogram(false);
     };
@@ -351,9 +350,18 @@ export default function EEGPatientData() {
         }
         if (sortColumn) {
             records.sort((a, b) => {
-                const aValue = a[sortColumn as keyof EEGData] || '';
-                const bValue = b[sortColumn as keyof EEGData] || '';
-                return sortDirection === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+                const aValue = a[sortColumn as keyof EEGData];
+                const bValue = b[sortColumn as keyof EEGData];
+
+                // If both values are numbers, sort numerically.
+                if (typeof aValue === 'number' && typeof bValue === 'number') {
+                    return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+                }
+
+                // Otherwise, convert both values to strings and sort using localeCompare.
+                const aStr = String(aValue || '');
+                const bStr = String(bValue || '');
+                return sortDirection === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
             });
         }
         return records;
