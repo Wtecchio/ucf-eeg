@@ -187,11 +187,14 @@ export default function EEGPatientData() {
         if (dataSource === 'csv') {
             const mockSpectrogramData: Record<string, SpectrogramData> = {};
             combinedRecords.forEach((record) => {
-                const key = `${record.patient_id}_${record.eeg_id}`;
-                mockSpectrogramData[key] = generateSpectrogramData(record.patient_id, record.eeg_id);
+                if (record.patient_id && record.eeg_id) {
+                    const key = `${record.patient_id}_${record.eeg_id}`;
+                    mockSpectrogramData[key] = generateSpectrogramData(record.patient_id, record.eeg_id);
+                }
             });
             setSpectrogramData(mockSpectrogramData);
         }
+
 
         setLoading(false);
         setLoadingSpectrogram(false);
