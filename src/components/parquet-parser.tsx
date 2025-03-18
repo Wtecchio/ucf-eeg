@@ -618,7 +618,9 @@ export function combineRecordsByEEGSpectrogram(records: EEGData[]): EEGData[] {
 
             // Add this offset to the offsets array if it's not already there
             const offset = parseFloat(record.eeg_label_offset_seconds);
-            if (!existingRecord.offsets.includes(offset)) {
+            if (!existingRecord.offsets) {
+                existingRecord.offsets = [offset];
+            } else if (!existingRecord.offsets.includes(offset)) {
                 existingRecord.offsets.push(offset);
             }
 
