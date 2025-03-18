@@ -954,13 +954,8 @@ export default function EEGPatientData() {
                                             </TabsContent>
 
                                             {/* Spectrograms Tab */}
+                                            {/* This code goes in the Spectrograms Tab section of your main EEGPatientData component */}
                                             <TabsContent value='spectrograms' className='mt-4'>
-                                                {console.log('multiChannelData keys:', Object.keys(multiChannelData))}
-                                                {console.log(
-                                                    'Current record spectrogram ID:',
-                                                    paginatedRecords.map((r) => r.spectrogram_id)
-                                                )}
-                                                {console.log('First record detail:', paginatedRecords[0])}
                                                 {patientRecords.length === 0 ? (
                                                     <div className='flex h-[300px] flex-col items-center justify-center gap-4'>
                                                         <Waveform className='text-muted-foreground/50 h-16 w-16' />
@@ -981,6 +976,7 @@ export default function EEGPatientData() {
                                                             const spectrogramId = record.spectrogram_id;
                                                             const hasParquetData =
                                                                 multiChannelData[spectrogramId] !== undefined;
+
                                                             return (
                                                                 <div key={idx} className='rounded-lg border p-4'>
                                                                     <div className='mb-4 flex items-center justify-between'>
@@ -999,6 +995,8 @@ export default function EEGPatientData() {
                                                                             {record.expert_consensus}
                                                                         </Badge>
                                                                     </div>
+
+                                                                    {/* Pass the offsets array to the MultiChannelSpectrogram component */}
                                                                     <MultiChannelSpectrogram
                                                                         data={
                                                                             hasParquetData
@@ -1008,10 +1006,12 @@ export default function EEGPatientData() {
                                                                         title={`Spectrogram for ID: ${spectrogramId}`}
                                                                         patientId={record.patient_id}
                                                                         recordId={record.eeg_id}
+                                                                        offsets={record.offsets} // Pass the offsets array here
                                                                     />
                                                                 </div>
                                                             );
                                                         })}
+
                                                         {paginatedRecords.length > 0 && (
                                                             <div className='mt-4 flex items-center justify-between'>
                                                                 <div className='text-muted-foreground text-sm'>
@@ -1118,7 +1118,6 @@ export default function EEGPatientData() {
                                                     </div>
                                                 )}
                                             </TabsContent>
-
                                             {/* Dashboard Tab */}
                                             <TabsContent value='dashboard' className='mt-4'>
                                                 <DashboardTab

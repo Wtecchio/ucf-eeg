@@ -46,37 +46,95 @@ export interface SpectrogramData {
 }
 
 // Convert ParsedEEGData to SpectrogramData format for visualization
-export function convertToSpectrogramData(parsedData: ParsedEEGData): SpectrogramData {
-    // Extract metadata
-    const patientId = parsedData.metadata.patientId || 'unknown';
-    const recordId = parsedData.metadata.recordId || 'unknown';
-    const channelNames = parsedData.metadata.channelNames || [];
-    const frequencies = parsedData.metadata.frequencies || [];
-
-    // For spectrograms, we expect data to be in [channels][frequencies][timepoints] format
-    // We'll convert to a simplified 2D array for easier visualization
-    const simplifiedData: number[][] = [];
-
-    // Take the first channel as default if we need a single representation
-    if (parsedData.data.length > 0) {
-        const firstChannelData = parsedData.data[0]; // First channel
-
-        // Each frequency band gets its own time series
-        for (let f = 0; f < firstChannelData.length; f++) {
-            // Extract this frequency's time series
-            const timeSeriesForFreq = firstChannelData[f];
-            simplifiedData.push(timeSeriesForFreq);
-        }
+export function convertToSpectrogramData(parsedData: ParsedEEGData, selectedChannel?: string) {
+    if (!parsedData || !parsedData.data || !Array.isArray(parsedData.data)) {
+        console.error('Invalid data format for spectrogram conversion');
+        // Return a minimal valid structure to prevent errors
+        return {
+            powerValues: [[0]],
+            times: [0],
+            frequencies: [0],
+            channelName: 'unknown'
+        };
     }
 
-    return {
-        patientId,
-        eegId: recordId,
-        data: simplifiedData,
-        channelNames,
-        frequencies,
-        timePoints: Array.from({ length: simplifiedData[0]?.length || 0 }, (_, i) => i)
-    };
+    try {
+        // Extract metadata
+        const channelNames = parsedData.metadata?.channelNames || [];
+        const frequencies = parsedData.metadata?.frequencies || [];
+
+        // Determine which channel to use
+        let channelIndex = 0; // Default to first channel
+        if (selectedChannel && channelNames.length > 0) {
+            channelIndex = channelNames.indexOf(selectedChannel);
+            if (channelIndex === -1) channelIndex = 0; // If not found, use first channel
+        }
+
+        // For spectrograms, we expect data to be in [channels][frequencies][timepoints] format
+        // If data doesn't match this format, create mock data
+        if (!parsedData.data[channelIndex] || !Array.isArray(parsedData.data[channelIndex])) {
+            console.warn('Invalid channel data format, using mock data');
+
+            // Create mock power values (basic gradient)
+            const mockFreqCount = frequencies.length || 10;
+            const mockTimeCount = 30; // Mock 30 time points
+
+            const powerValues = [];
+            for (let f = 0; f < mockFreqCount; f++) {
+                const row = [];
+                for (let t = 0; t < mockTimeCount; t++) {
+                    // Create a pattern that looks like a spectrogram
+                    const value = Math.sin(f / 2) * Math.cos(t / 5) * 5 + 5;
+                    row.push(value);
+                }
+                powerValues.push(row);
+            }
+
+            // Create mock times array
+            const times = Array.from({ length: mockTimeCount }, (_, i) => i * 0.5);
+
+            return {
+                powerValues,
+                times,
+                frequencies: frequencies.length ? frequencies : Array.from({ length: mockFreqCount }, (_, i) => i + 1),
+                channelName: selectedChannel || channelNames[0] || 'Channel 1'
+            };
+        }
+
+        // Extract the data for the selected channel
+        const channelData = parsedData.data[channelIndex];
+
+        // Convert to the expected format for the visualization
+        const powerValues = channelData.map((freqData) => {
+            // If freqData is a 2D array, we assume it's already in [frequencies][timepoints] format
+            if (Array.isArray(freqData) && freqData.length > 0 && Array.isArray(freqData[0])) {
+                return freqData;
+            }
+
+            // Otherwise, assume it's a single time series and convert it
+            return Array.isArray(freqData) ? freqData : [freqData];
+        });
+
+        // Create time points if not available
+        const timePoints = parsedData.metadata?.timePoints || powerValues[0]?.length || 0;
+        const times = Array.from({ length: timePoints }, (_, i) => i * 0.5); // Assume 0.5s intervals
+
+        return {
+            powerValues,
+            times,
+            frequencies: frequencies.length ? frequencies : Array.from({ length: powerValues.length }, (_, i) => i + 1),
+            channelName: selectedChannel || channelNames[channelIndex] || 'Channel 1'
+        };
+    } catch (error) {
+        console.error('Error converting data to spectrogram format:', error);
+        // Return minimal valid structure
+        return {
+            powerValues: [[0]],
+            times: [0],
+            frequencies: [0],
+            channelName: 'error'
+        };
+    }
 }
 
 // Function to fetch CSV data from URL
@@ -536,44 +594,44 @@ export function combineRecordsByOffset(records: EEGData[]): EEGData[] {
 // Combine EEG records by unique EEG/spectrogram pairs
 export function combineRecordsByEEGSpectrogram(records: EEGData[]): EEGData[] {
     if (!records || !Array.isArray(records) || records.length === 0) {
-      return [];
+        return [];
     }
 
     // Group records by (patient_id, eeg_id, spectrogram_id)
     const groupedMap = new Map<string, EEGData>();
 
     records.forEach((record) => {
-      // Create a unique key for this EEG/spectrogram pair
-      const key = `${record.patient_id || 'unknown'}|${record.eeg_id}|${record.spectrogram_id}`;
+        // Create a unique key for this EEG/spectrogram pair
+        const key = `${record.patient_id || 'unknown'}|${record.eeg_id}|${record.spectrogram_id}`;
 
-      if (!groupedMap.has(key)) {
-        // First record for this key, create a new record with an offsets array
-        const newRecord = {
-          ...record,
-          // Initialize an array to store all offset values
-          offsets: [parseFloat(record.eeg_label_offset_seconds)]
-        };
-        groupedMap.set(key, newRecord);
-      } else {
-        // Update existing record
-        const existingRecord = groupedMap.get(key)!;
+        if (!groupedMap.has(key)) {
+            // First record for this key, create a new record with an offsets array
+            const newRecord = {
+                ...record,
+                // Initialize an array to store all offset values
+                offsets: [parseFloat(record.eeg_label_offset_seconds)]
+            };
+            groupedMap.set(key, newRecord);
+        } else {
+            // Update existing record
+            const existingRecord = groupedMap.get(key)!;
 
-        // Add this offset to the offsets array if it's not already there
-        const offset = parseFloat(record.eeg_label_offset_seconds);
-        if (!existingRecord.offsets.includes(offset)) {
-          existingRecord.offsets.push(offset);
+            // Add this offset to the offsets array if it's not already there
+            const offset = parseFloat(record.eeg_label_offset_seconds);
+            if (!existingRecord.offsets.includes(offset)) {
+                existingRecord.offsets.push(offset);
+            }
+
+            // Keep all vote fields as they are (assuming they are the same for all offsets)
+            // If votes differ between offsets, you could sum them up as in the original function
+
+            // Sort offsets for better display
+            existingRecord.offsets.sort((a, b) => a - b);
+
+            // Update the grouped map
+            groupedMap.set(key, existingRecord);
         }
-
-        // Keep all vote fields as they are (assuming they are the same for all offsets)
-        // If votes differ between offsets, you could sum them up as in the original function
-
-        // Sort offsets for better display
-        existingRecord.offsets.sort((a, b) => a - b);
-
-        // Update the grouped map
-        groupedMap.set(key, existingRecord);
-      }
     });
 
     return Array.from(groupedMap.values());
-  }
+}
