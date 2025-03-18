@@ -7,8 +7,7 @@ import { Progress } from '@/components/ui/progress';
 
 import TemporalDistribution from './TemporalDistribution';
 
-// Define a generic record type
-interface PatientRecord {
+export interface PatientRecord {
     spectrogram_id?: string | number;
     expert_consensus?: string;
     eeg_label_offset_seconds?: string | number;
@@ -16,14 +15,14 @@ interface PatientRecord {
 }
 
 // Safe parsing function for votes (handles string values)
-function parseVote(value: string | number | null | undefined): number {
+export const parseVote = (value: string | number | null | undefined): number => {
     if (value === undefined || value === null) return 0;
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
     return isNaN(numValue) ? 0 : numValue;
-}
+};
 
 // Calculate votes by grouping by spectrogram_id first to avoid duplication
-function calculateVotes(records: PatientRecord[], voteType: string): number {
+export const calculateVotes = (records: PatientRecord[], voteType: string): number => {
     if (!records || !Array.isArray(records)) return 0;
 
     // Group records by spectrogram_id to prevent duplication of votes
@@ -46,10 +45,10 @@ function calculateVotes(records: PatientRecord[], voteType: string): number {
         }
         return total;
     }, 0);
-}
+};
 
 // Calculate average offset time
-function calculateAverageOffset(records: PatientRecord[]): number {
+export const calculateAverageOffset = (records: PatientRecord[]): number => {
     if (!records || !Array.isArray(records) || records.length === 0) return 0;
 
     let totalOffset = 0;
@@ -66,13 +65,12 @@ function calculateAverageOffset(records: PatientRecord[]): number {
     });
 
     return validRecords > 0 ? totalOffset / validRecords : 0;
-}
+};
 
 // Calculate consensus distribution without duplicates
-function calculateConsensusDistribution(records: PatientRecord[]): {
-    distribution: Record<string, number>;
-    totalUniqueRecords: number;
-} {
+export const calculateConsensusDistribution = (
+    records: PatientRecord[]
+): { distribution: Record<string, number>; totalUniqueRecords: number } => {
     if (!records || !Array.isArray(records)) return { distribution: {}, totalUniqueRecords: 0 };
 
     // Group by spectrogram_id to avoid duplicates
@@ -102,7 +100,7 @@ function calculateConsensusDistribution(records: PatientRecord[]): {
     });
 
     return { distribution, totalUniqueRecords: uniqueRecords.length };
-}
+};
 
 interface DashboardTabProps {
     selectedPatient: any;
