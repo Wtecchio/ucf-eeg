@@ -5,6 +5,8 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 
+import TemporalDistribution from './TemporalDistribution';
+
 // Safe parsing function for votes (handles string values)
 function parseVote(value) {
     if (value === undefined || value === null) return 0;
@@ -215,21 +217,7 @@ const DashboardTab = ({ selectedPatient, patientCombinedRecords, dataSource }) =
                 </CardContent>
             </Card>
 
-            {/* Temporal Distribution Card */}
-            <Card className='md:col-span-2'>
-                <CardHeader>
-                    <CardTitle className='text-lg'>Temporal Distribution of Anomalies</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className='flex h-64 items-center justify-center'>
-                        <div className='text-muted-foreground'>
-                            {dataSource === 'parquet'
-                                ? 'Multi-channel data visualization would appear here'
-                                : 'Temporal distribution graph would appear here'}
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+            <TemporalDistribution patientCombinedRecords={patientCombinedRecords} />
         </div>
     );
 };

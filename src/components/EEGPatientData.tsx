@@ -1188,6 +1188,7 @@ export default function EEGPatientData() {
             </Dialog>
 
             {/* Record Details Modal */}
+            {/* Record Details Modal */}
             <Dialog open={modalOpen} onOpenChange={setModalOpen}>
                 <DialogContent className='sm:max-w-[800px]'>
                     <DialogHeader>
@@ -1203,6 +1204,7 @@ export default function EEGPatientData() {
                                     <TabsTrigger value='spectrogram'>Spectrogram</TabsTrigger>
                                 </TabsList>
                                 <TabsContent value='details' className='space-y-4 pt-4'>
+                                    {/* Details content - keep this part as is */}
                                     <div className='grid grid-cols-2 gap-4'>
                                         <div>
                                             <h3 className='text-muted-foreground text-sm font-medium'>Patient ID</h3>
@@ -1259,6 +1261,7 @@ export default function EEGPatientData() {
                                     </div>
                                 </TabsContent>
                                 <TabsContent value='votes' className='pt-4'>
+                                    {/* Votes analysis content - keep this part as is */}
                                     <h3 className='text-muted-foreground mb-3 text-sm font-medium'>
                                         Vote Distribution
                                     </h3>
@@ -1322,11 +1325,17 @@ export default function EEGPatientData() {
                                     </div>
                                 </TabsContent>
                                 <TabsContent value='spectrogram' className='pt-4'>
+                                    {/* Replace this part with the MultiChannelSpectrogram component */}
                                     <MultiChannelSpectrogram
-                                        data={getMultiChannelData(selectedRecord.patient_id)}
+                                        data={multiChannelData[selectedRecord.spectrogram_id] || null}
                                         title={`Spectrogram for EEG ${selectedRecord.eeg_id}`}
                                         patientId={selectedRecord.patient_id}
                                         recordId={selectedRecord.eeg_id}
+                                        offsets={
+                                            selectedRecord.offsets || [
+                                                parseFloat(selectedRecord.eeg_label_offset_seconds)
+                                            ]
+                                        }
                                     />
                                 </TabsContent>
                             </Tabs>
