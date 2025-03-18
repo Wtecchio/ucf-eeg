@@ -6,6 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 
 import TemporalDistribution from './TemporalDistribution';
+// At the top of your DashboardTab.tsx file
+import { ParsedEEGData } from './types';
+
+// Adjust the path as needed
 
 export interface PatientRecord {
     spectrogram_id?: string | number;
