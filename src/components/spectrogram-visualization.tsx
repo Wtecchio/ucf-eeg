@@ -217,7 +217,19 @@ export default function MultiChannelSpectrogram({
         )
     }
 
+
+    // Add your debug logs here:
+    if (data && data.metadata) {
+        console.log("data.metadata:", data.metadata);
+        console.log("samplingRate:", data.metadata.samplingRate);
+        console.log("duration:", data.metadata.duration);
+    }
+
+
+
+
     return (
+        // Inside your component’s render method (before the return statement)
         <Card>
             <CardHeader className="pb-2">
                 <CardTitle className="flex justify-between items-center">
