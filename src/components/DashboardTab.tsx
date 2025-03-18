@@ -106,6 +106,8 @@ interface DashboardTabProps {
     selectedPatient: any;
     patientCombinedRecords: PatientRecord[];
     dataSource?: any;
+    multiChannelData: Record<string, ParsedEEGData>;
+    dataSource: 'csv' | 'parquet';
 }
 
 const DashboardTab: React.FC<DashboardTabProps> = ({ selectedPatient, patientCombinedRecords, dataSource }) => {
