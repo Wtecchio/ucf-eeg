@@ -358,7 +358,15 @@ export default function EEGPatientData() {
                     return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
                 }
 
-                // Otherwise, convert both values to strings and sort using localeCompare.
+                // Handle arrays specifically
+                if (Array.isArray(aValue) || Array.isArray(bValue)) {
+                    // Convert arrays to strings for comparison
+                    const aStr = Array.isArray(aValue) ? JSON.stringify(aValue) : String(aValue || '');
+                    const bStr = Array.isArray(bValue) ? JSON.stringify(bValue) : String(bValue || '');
+                    return sortDirection === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
+                }
+
+                // For other types, convert to strings and compare
                 const aStr = String(aValue || '');
                 const bStr = String(bValue || '');
                 return sortDirection === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
