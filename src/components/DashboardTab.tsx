@@ -105,7 +105,6 @@ export const calculateConsensusDistribution = (
 interface DashboardTabProps {
     selectedPatient: any;
     patientCombinedRecords: PatientRecord[];
-    dataSource?: any;
     multiChannelData: Record<string, ParsedEEGData>;
     dataSource: 'csv' | 'parquet';
 }
