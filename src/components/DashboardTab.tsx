@@ -8,7 +8,7 @@ import { Progress } from '@/components/ui/progress';
 import TemporalDistribution from './TemporalDistribution';
 
 // Safe parsing function for votes (handles string values)
-function parseVote(value) {
+function parseVote(value: string | number | null | undefined) {
     if (value === undefined || value === null) return 0;
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
     return isNaN(numValue) ? 0 : numValue;
