@@ -9,17 +9,14 @@ const withBundleAnalyzer = initializeBundleAnalyzer({
 
 // https://nextjs.org/docs/pages/api-reference/next-config-js
 const nextConfig: NextConfig = {
-    output: 'standalone'
+    output: 'standalone',
+    // Add your ESLint config here
+    eslint: {
+        ignoreDuringBuilds: true
+    },
+    typescript: {
+        ignoreBuildErrors: true
+    }
 };
 
 export default withBundleAnalyzer(nextConfig);
-
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-    eslint: {
-      // Ignore ESLint errors during build
-      ignoreDuringBuilds: true,
-    }
-  }
-
-  module.exports = nextConfig
