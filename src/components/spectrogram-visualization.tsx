@@ -141,7 +141,9 @@ export default function MultiChannelSpectrogram({
     // Draw a single spectrogram for the selected offset
     const drawSingleSpectrogram = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
         // Convert multi-channel data to spectrogram data for the selected channel
-        const spectrogramData = convertToSpectrogramData(data, selectedChannel as keyof ParsedEEGData['channels']);
+        const spectrogramData = data
+            ? convertToSpectrogramData(data, selectedChannel as keyof ParsedEEGData['channels'])
+            : null;
 
         // Check if the spectrogramData has the expected structure
         if (
