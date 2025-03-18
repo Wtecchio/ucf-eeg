@@ -89,7 +89,7 @@ export async function parseCSV(text: string): Promise<EEGData[]> {
                 }));
                 resolve(records);
             },
-            error: (error) => {
+            error: (error: Error) => {
                 reject(error);
             }
         });
